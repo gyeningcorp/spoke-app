@@ -1,10 +1,6 @@
 import type { ActionKind, StructuredResult, TemplateId, Transcript } from './types';
 import { loadAuth } from './auth';
-import {
-  hasDirectKeys,
-  transcribeDirect,
-  generateDirect,
-} from './directApi';
+import { hasDirectKeys, generateDirect } from './directApi';
 
 const PROXY_URL = (import.meta.env.VITE_PROXY_URL as string | undefined)?.replace(/\/$/, '') || '';
 const USE_DIRECT = !PROXY_URL;
@@ -34,25 +30,30 @@ export class QuotaError extends Error {
 
 export class NoKeysError extends Error {
   constructor() {
-    super('API keys not set');
+    super('API keys not configured');
     this.name = 'NoKeysError';
   }
 }
 
-export async function transcribe(blob: Blob, _durationSec: number): Promise<TranscribeResponse> {
+// In direct mode, transcription is handled by the Web Speech API at record time
+// and saved to the recording. This is only called if transcript is missing.
+export async function transcribe(_blob: Blob, _durationSec: number): Promise<TranscribeResponse> {
   if (USE_DIRECT) {
-    if (!hasDirectKeys()) throw new NoKeysError();
-    const transcript = await transcribeDirect(blob);
-    return { transcript, minutesRemaining: 9999 };
+    // Transcript should already be on the recording from record time.
+    // If it's missing (e.g. speech recognition wasn't supported), return empty.
+    return {
+      transcript: { text: '', segments: [] },
+      minutesRemaining: 9999,
+    };
   }
 
-  const audioBase64 = await blobToBase64(blob);
+  const audioBase64 = await blobToBase64(_blob);
   const res = await fetch(`${PROXY_URL}/transcribe`, {
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify({
       audioBase64,
-      mimeType: blob.type || 'audio/webm',
+      mimeType: _blob.type || 'audio/webm',
       durationSec: _durationSec,
     }),
   });
@@ -69,7 +70,7 @@ export async function generate(
 ): Promise<StructuredResult> {
   if (USE_DIRECT) {
     if (!hasDirectKeys()) throw new NoKeysError();
-    return generateDirect(transcript, template, action, meta);
+    return generateDirect(transcript.text, template, action, meta);
   }
 
   const res = await fetch(`${PROXY_URL}/generate`, {

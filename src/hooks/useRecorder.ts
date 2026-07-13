@@ -13,11 +13,21 @@ export interface StopResult {
   blob: Blob;
   mimeType: string;
   durationSec: number;
+  transcript: string; // captured via Web Speech API
 }
 
-// Manages a recording session, live timer, and interruption safety.
-// On backgrounding / phone call, the current buffer is preserved and recording
-// is finalized so nothing is lost.
+type SpeechRecognitionAny = any;
+
+function makeSpeechRecognition(): SpeechRecognitionAny | null {
+  const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  if (!SR) return null;
+  const sr = new SR();
+  sr.continuous = true;
+  sr.interimResults = true;
+  sr.lang = 'en-US';
+  return sr;
+}
+
 export function useRecorder() {
   const [state, setState] = useState<RecorderState>({
     isRecording: false,
@@ -31,6 +41,8 @@ export function useRecorder() {
   const startTsRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
   const finalizeRef = useRef<(() => Promise<StopResult | null>) | null>(null);
+  const srRef = useRef<SpeechRecognitionAny | null>(null);
+  const transcriptRef = useRef<string>('');
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -43,6 +55,8 @@ export function useRecorder() {
     if (handleRef.current) return;
     try {
       chunksRef.current = [];
+      transcriptRef.current = '';
+
       const handle = await startRecorder((chunk) => {
         chunksRef.current.push(chunk);
       });
@@ -53,6 +67,30 @@ export function useRecorder() {
       timerRef.current = window.setInterval(() => {
         setState((s) => ({ ...s, elapsedSec: (Date.now() - startTsRef.current) / 1000 }));
       }, 100);
+
+      // Start Web Speech recognition in parallel
+      const sr = makeSpeechRecognition();
+      if (sr) {
+        const finals: string[] = [];
+        sr.onresult = (event: any) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const r = event.results[i];
+            if (r.isFinal) finals.push(r[0].transcript);
+            else interim = r[0].transcript;
+          }
+          transcriptRef.current = [...finals, interim].join(' ').trim();
+        };
+        sr.onerror = () => {}; // silently ignore — audio blob is still saved
+        sr.onend = () => {
+          // Restart if still recording (browsers stop after silence)
+          if (handleRef.current) {
+            try { sr.start(); } catch {}
+          }
+        };
+        try { sr.start(); } catch {}
+        srRef.current = sr;
+      }
     } catch (err: any) {
       setState((s) => ({
         ...s,
@@ -67,18 +105,23 @@ export function useRecorder() {
     if (!handle) return null;
     clearTimer();
     const durationSec = (Date.now() - startTsRef.current) / 1000;
+
+    // Stop speech recognition
+    if (srRef.current) {
+      try { srRef.current.stop(); } catch {}
+      srRef.current = null;
+    }
+
     await stopRecorder(handle);
     const blob = new Blob(chunksRef.current, { type: handle.mimeType });
+    const transcript = transcriptRef.current;
     handleRef.current = null;
     setState((s) => ({ ...s, isRecording: false, analyser: null, elapsedSec: durationSec }));
-    return { blob, mimeType: handle.mimeType, durationSec };
+    return { blob, mimeType: handle.mimeType, durationSec, transcript };
   }, []);
 
-  // Keep a ref so lifecycle listeners can finalize without stale closures.
   finalizeRef.current = stop;
 
-  // Interruption handling: if the app is backgrounded (call, home button),
-  // finalize immediately so the recording is safely captured.
   useEffect(() => {
     let listener: any;
     App.addListener('appStateChange', ({ isActive }) => {

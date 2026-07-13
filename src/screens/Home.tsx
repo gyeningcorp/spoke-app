@@ -28,12 +28,16 @@ export function Home({ minutesRemaining, onOpen, onInfo }: HomeProps) {
       // Save immediately — never lose a recording.
       const id = newId();
       await saveAudio(id, result.blob);
+      const transcript = result.transcript
+        ? { text: result.transcript, segments: [] }
+        : undefined;
       const rec: Recording = {
         id,
         title: 'New recording',
         createdAt: Date.now(),
         durationSec: result.durationSec,
         mimeType: result.mimeType,
+        transcript,
         results: {},
       };
       await saveRecording(rec);
