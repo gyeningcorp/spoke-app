@@ -30,6 +30,9 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          VITE_GEMINI_KEY: ${{ secrets.VITE_GEMINI_KEY }}
+          VITE_CLAUDE_KEY: ${{ secrets.VITE_CLAUDE_KEY }}
 
       - uses: actions/upload-pages-artifact@v3
         with:

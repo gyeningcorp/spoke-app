@@ -1,21 +1,15 @@
-// Direct-call mode: Gemini + Claude called straight from the browser.
-// Keys are stored in localStorage — never sent anywhere except the respective API.
-// Swap this out for the Worker proxy before production.
+// Direct-call mode: Gemini + Claude called from the browser using build-time keys.
+// Keys are baked in at build time via VITE_GEMINI_KEY / VITE_CLAUDE_KEY env vars.
+// Swap for the Worker proxy in production (Option A).
 
 import type { ActionKind, StructuredResult, TemplateId, Transcript } from './types';
 import { TEMPLATES } from '../templates/templates';
 
-const GEMINI_KEY_STORAGE = 'spoke_gemini_key';
-const CLAUDE_KEY_STORAGE = 'spoke_claude_key';
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_KEY as string | undefined;
+const CLAUDE_KEY = import.meta.env.VITE_CLAUDE_KEY as string | undefined;
 
-export function getGeminiKey(): string { return localStorage.getItem(GEMINI_KEY_STORAGE) || ''; }
-export function getClaudeKey(): string { return localStorage.getItem(CLAUDE_KEY_STORAGE) || ''; }
-export function setGeminiKey(k: string) { localStorage.setItem(GEMINI_KEY_STORAGE, k); }
-export function setClaudeKey(k: string) { localStorage.setItem(CLAUDE_KEY_STORAGE, k); }
-export function hasDirectKeys(): boolean { return !!(getGeminiKey() && getClaudeKey()); }
-export function clearDirectKeys() {
-  localStorage.removeItem(GEMINI_KEY_STORAGE);
-  localStorage.removeItem(CLAUDE_KEY_STORAGE);
+export function hasDirectKeys(): boolean {
+  return !!(GEMINI_KEY && CLAUDE_KEY);
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -28,14 +22,13 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 export async function transcribeDirect(blob: Blob): Promise<Transcript> {
-  const key = getGeminiKey();
-  if (!key) throw new Error('No Gemini API key set');
+  if (!GEMINI_KEY) throw new Error('Gemini key not configured');
 
   const audioBase64 = await blobToBase64(blob);
   const mimeType = blob.type || 'audio/webm';
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -67,8 +60,7 @@ export async function generateDirect(
   action: ActionKind,
   meta: { date: string; duration: string },
 ): Promise<StructuredResult> {
-  const key = getClaudeKey();
-  if (!key) throw new Error('No Claude API key set');
+  if (!CLAUDE_KEY) throw new Error('Claude key not configured');
 
   const tpl = TEMPLATES.find(t => t.id === template);
   const templateName = tpl?.label || template;
@@ -77,19 +69,13 @@ export async function generateDirect(
     ? `Turn this transcript into a hierarchical outline following the ${templateName} structure. Capture topics, key points, and decisions. Return the JSON schema only.`
     : `Write a concise 3–5 sentence summary of this transcript, then 3–5 key takeaways. Follow the ${templateName} structure. Return the JSON schema only.`;
 
-  const schema = `{
-  "title": string,
-  "date": string,
-  "duration": string,
-  "sections": [{"heading": string, "bullets": [string]}],
-  "action_items": [{"task": string, "owner": string | null}]
-}`;
+  const schema = `{"title":string,"date":string,"duration":string,"sections":[{"heading":string,"bullets":[string]}],"action_items":[{"task":string,"owner":string|null}]}`;
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': key,
+      'x-api-key': CLAUDE_KEY,
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
@@ -98,7 +84,7 @@ export async function generateDirect(
       max_tokens: 2000,
       messages: [{
         role: 'user',
-        content: `${prompt}\n\nJSON schema to return:\n${schema}\n\nDate: ${meta.date}\nDuration: ${meta.duration}\n\nTranscript:\n${transcript.text}`,
+        content: `${prompt}\n\nJSON schema:\n${schema}\n\nDate: ${meta.date}\nDuration: ${meta.duration}\n\nTranscript:\n${transcript.text}`,
       }],
     }),
   });
@@ -110,7 +96,6 @@ export async function generateDirect(
 
   const data = await res.json() as { content?: { text?: string }[] };
   let raw = data.content?.[0]?.text || '';
-  // Strip markdown fences if present
   raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
 
   try {
