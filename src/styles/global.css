@@ -1,0 +1,104 @@
+:root {
+  /* Light theme (WCAG AA contrast on text) */
+  --bg: #ffffff;
+  --bg-elev: #f4f5f7;
+  --text: #0b0b0f;
+  --text-dim: #52555c;
+  --border: #d9dbe0;
+  --accent: #4f8cff;
+  --accent-text: #ffffff;
+  --danger: #ef4444;
+  --record: #ff3b30;
+  --shadow: rgba(0, 0, 0, 0.12);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0b0f;
+    --bg-elev: #17181d;
+    --text: #f5f6f8;
+    --text-dim: #9aa0aa;
+    --border: #2a2c33;
+    --accent: #5a97ff;
+    --accent-text: #05070d;
+    --danger: #ff5a4d;
+    --record: #ff453a;
+    --shadow: rgba(0, 0, 0, 0.5);
+  }
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+/* Every interactive target is at least 48px. */
+button,
+.tap {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+.fade-in {
+  animation: fadeIn 0.35s ease both;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

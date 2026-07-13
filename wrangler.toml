@@ -1,0 +1,13 @@
+name = "voicenotes-proxy"
+main = "workers/index.ts"
+compatibility_date = "2024-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# KV namespace for quota + transcript cache + users.
+# Create with: wrangler kv:namespace create VN_STORE
+[[kv_namespaces]]
+binding = "VN_STORE"
+id = "replace-with-your-kv-namespace-id"
+
+# Secrets are set with `wrangler secret put NAME`:
+#   GEMINI_KEY, CLAUDE_KEY, STRIPE_KEY, JWT_SECRET, STRIPE_PRICE_ID

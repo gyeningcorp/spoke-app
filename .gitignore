@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.*
+!.env.example
+.DS_Store
+.wrangler
+ios/App/Pods
+ios/App/App/public
+android/app/src/main/assets/public
+android/.gradle
+*.log
