@@ -1,9 +1,13 @@
-// Thin client for the Cloudflare Worker proxy. All API keys live server-side.
-
 import type { ActionKind, StructuredResult, TemplateId, Transcript } from './types';
 import { loadAuth } from './auth';
+import {
+  hasDirectKeys,
+  transcribeDirect,
+  generateDirect,
+} from './directApi';
 
 const PROXY_URL = (import.meta.env.VITE_PROXY_URL as string | undefined)?.replace(/\/$/, '') || '';
+const USE_DIRECT = !PROXY_URL;
 
 async function authHeaders(): Promise<Record<string, string>> {
   const auth = await loadAuth();
@@ -13,18 +17,6 @@ async function authHeaders(): Promise<Record<string, string>> {
   };
   if (auth.jwt) headers['Authorization'] = `Bearer ${auth.jwt}`;
   return headers;
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      resolve(result.split(',')[1] || ''); // strip data: prefix
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
 }
 
 export interface TranscribeResponse {
@@ -40,8 +32,20 @@ export class QuotaError extends Error {
   }
 }
 
-/** POST /transcribe — sends native audio, returns transcript + updated quota. */
-export async function transcribe(blob: Blob, durationSec: number): Promise<TranscribeResponse> {
+export class NoKeysError extends Error {
+  constructor() {
+    super('API keys not set');
+    this.name = 'NoKeysError';
+  }
+}
+
+export async function transcribe(blob: Blob, _durationSec: number): Promise<TranscribeResponse> {
+  if (USE_DIRECT) {
+    if (!hasDirectKeys()) throw new NoKeysError();
+    const transcript = await transcribeDirect(blob);
+    return { transcript, minutesRemaining: 9999 };
+  }
+
   const audioBase64 = await blobToBase64(blob);
   const res = await fetch(`${PROXY_URL}/transcribe`, {
     method: 'POST',
@@ -49,7 +53,7 @@ export async function transcribe(blob: Blob, durationSec: number): Promise<Trans
     body: JSON.stringify({
       audioBase64,
       mimeType: blob.type || 'audio/webm',
-      durationSec,
+      durationSec: _durationSec,
     }),
   });
   if (res.status === 402) throw new QuotaError();
@@ -57,13 +61,17 @@ export async function transcribe(blob: Blob, durationSec: number): Promise<Trans
   return res.json();
 }
 
-/** POST /generate — transcript + template + action -> structured JSON from Claude. */
 export async function generate(
   transcript: Transcript,
   template: TemplateId,
   action: ActionKind,
   meta: { date: string; duration: string },
 ): Promise<StructuredResult> {
+  if (USE_DIRECT) {
+    if (!hasDirectKeys()) throw new NoKeysError();
+    return generateDirect(transcript, template, action, meta);
+  }
+
   const res = await fetch(`${PROXY_URL}/generate`, {
     method: 'POST',
     headers: await authHeaders(),
@@ -78,8 +86,9 @@ export interface SubscriptionStatus {
   minutesRemaining: number;
 }
 
-/** POST /validate-subscription — refresh tier + quota from server. */
 export async function validateSubscription(): Promise<SubscriptionStatus> {
+  if (USE_DIRECT) return { tier: 'pro', minutesRemaining: 9999 };
+
   const res = await fetch(`${PROXY_URL}/validate-subscription`, {
     method: 'POST',
     headers: await authHeaders(),
@@ -89,7 +98,6 @@ export async function validateSubscription(): Promise<SubscriptionStatus> {
   return res.json();
 }
 
-/** Returns a Stripe Checkout URL to open in the web view. */
 export async function createCheckout(email: string): Promise<{ url: string }> {
   const res = await fetch(`${PROXY_URL}/checkout`, {
     method: 'POST',
@@ -112,4 +120,13 @@ export async function signup(
   });
   if (!res.ok) throw new Error(`Signup failed (${res.status})`);
   return res.json();
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve((reader.result as string).split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
